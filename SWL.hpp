@@ -63,25 +63,31 @@ namespace SWL
         HWND m_hWnd;
 
     public:
-        Application(PCWSTR lpWindowName, 
-                    int nWidth = CW_USEDEFAULT, 
-                    int nHeight = CW_USEDEFAULT,
-                    int x = CW_USEDEFAULT, 
-                    int y = CW_USEDEFAULT, 
-                    DWORD dwStyle = WS_OVERLAPPEDWINDOW,
-                    DWORD dwExStyle = WS_EX_COMPOSITED);
+        Application(PCWSTR lpWindowName,
+            int nWidth = CW_USEDEFAULT,
+            int nHeight = CW_USEDEFAULT,
+            int x = CW_USEDEFAULT,
+            int y = CW_USEDEFAULT,
+            DWORD dwStyle = WS_OVERLAPPEDWINDOW,
+            DWORD dwExStyle = WS_EX_COMPOSITED);
 
         static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
+        // Message polling/waiting functions
+        void WaitMessage();
+        void PollMessage();
+
     protected:
-        // Event handling functions to be overrided
+        // Message handling functions to be overrided
         virtual void OnPaint(HDC hDC, PAINTSTRUCT ps) {}
-        virtual void OnKeyDown(UINT key) {}
-        virtual void OnKeyUp(UINT key) {}
-        virtual void OnMouseButtonDown(UINT button) {}
-        virtual void OnMouseButtonUp(UINT button) {}
+        virtual void OnKeyDown(ULONGLONG ulKey) {}
+        virtual void OnKeyUp(ULONGLONG ulKey) {}
+        virtual void OnMouseButtonDown(UINT uButton) {}
+        virtual void OnMouseButtonUp(UINT uButton) {}
         virtual void OnMouseMove(int x, int y) {}
-        virtual void OnClose() {};
+        virtual void OnClose() {}
+        virtual BOOL HandleOtherMessages(UINT uMsg) { return FALSE; }
+
     };
 }
 
@@ -107,8 +113,8 @@ namespace SWL
      * Application implementation
      *=========================================================================*/
     template<class DerivedType>
-    Application<DerivedType>::Application(PCWSTR lpWindowName, int nWidth, int nHeight, int x, int y, 
-                                          DWORD dwStyle, DWORD dwExStyle)
+    Application<DerivedType>::Application(PCWSTR lpWindowName, int nWidth, int nHeight, int x, int y,
+        DWORD dwStyle, DWORD dwExStyle)
     {
         m_hInstance = GetModuleHandleW(NULL);
 
@@ -116,13 +122,12 @@ namespace SWL
         wndClass.lpfnWndProc = DerivedType::WndProc;
         wndClass.hInstance = m_hInstance;
         wndClass.lpszClassName = lpWindowName;
-
         if (!RegisterClassW(&wndClass))
             throw ApplicationException(L"Failed to register the window class (RegisterClassW)");
 
 
         m_hWnd = CreateWindowExW(dwExStyle, lpWindowName, lpWindowName, dwStyle, x, y,
-                                 nWidth, nHeight, NULL, NULL, m_hInstance, this);
+            nWidth, nHeight, NULL, NULL, m_hInstance, this);
         if (m_hWnd == nullptr)
             throw ApplicationException(L"Failed to create a window (CreateWindowEx)");
 
@@ -164,7 +169,7 @@ namespace SWL
             // Keyboard handling
             case WM_KEYDOWN: pDerivedType->OnKeyDown(wParam); return TRUE;
             case WM_KEYUP: pDerivedType->OnKeyUp(wParam); return TRUE;
-            
+
             // Mouse handling
             case WM_LBUTTONDOWN: pDerivedType->OnMouseButtonDown(VK_LBUTTON); return TRUE;
             case WM_MBUTTONDOWN: pDerivedType->OnMouseButtonDown(VK_MBUTTON); return TRUE;
@@ -180,12 +185,41 @@ namespace SWL
             }
             return TRUE;
 
-            // Exit handling
-            case WM_CLOSE: pDerivedType->OnClose(); return TRUE;
+            // Close handling
+            case WM_CLOSE:
+            {
+                pDerivedType->OnClose();
+                PostQuitMessage(0);
+            }
+            return TRUE;
+
+            // Handle other messages that are not handled by SWL
+            default:
+                if (pDerivedType->HandleOtherMessages(uMsg))
+                    return TRUE;
             }
         }
 
         return DefWindowProc(hWnd, uMsg, wParam, lParam);
+    }
+
+    template<class DerivedType>
+    void Application<DerivedType>::WaitMessage()
+    {
+        MSG msg = {};
+        if (GetMessageW(&msg, NULL, 0, 0) == -1)
+            throw ApplicationException(L"Failed to get a message (GetMessageW)");
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    template<class DerivedType>
+    void Application<DerivedType>::PollMessage()
+    {
+        MSG msg = {};
+        PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE);
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
     }
 }
 #endif
